@@ -20,7 +20,7 @@
 #include "sdrformat.h"
 #include "decimate.h"
 
-#define VERSION "0.1"
+#define VERSION "0.2"
 #define PACKAGE "sdr2mseed"
 
 struct listnode {
