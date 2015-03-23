@@ -7,7 +7,7 @@
  *   ORFEUS/EC-Project MEREDIAN
  *   IRIS Data Management Center
  *
- * modified: 2011.129
+ * modified: 2012.088
  ***************************************************************************/
 
 #include <stdio.h>
@@ -286,7 +286,22 @@ msr_normalize_header ( MSRecord *msr, flag verbose )
       ms_strncpopen (msr->fsdh->location, msr->location, 2);
       ms_strncpopen (msr->fsdh->channel, msr->channel, 3);
       ms_hptime2btime (msr->starttime, &(msr->fsdh->start_time));
-      ms_genfactmult (msr->samprate, &(msr->fsdh->samprate_fact), &(msr->fsdh->samprate_mult));
+      
+      /* When the sampling rate is <= 32767 Hertz determine the factor
+       * and multipler through rational approximation.  For higher rates
+       * set the factor and multiplier to 0. */
+      if ( msr->samprate <= 32767.0 )
+	{
+	  ms_genfactmult (msr->samprate, &(msr->fsdh->samprate_fact), &(msr->fsdh->samprate_mult));
+	}
+      else
+	{
+	  if ( verbose > 1 )
+	    ms_log (1, "Sampling rate too high to approximate factor & multiplier: %g\n",
+		    msr->samprate);
+	  msr->fsdh->samprate_fact = 0;
+	  msr->fsdh->samprate_mult = 0;
+	}
       
       offset += 48;
       
@@ -441,15 +456,15 @@ msr_duplicate (MSRecord *msr, flag datadup)
 	}
       
       /* Allocate memory for new data array */
-      if ( (dupmsr->datasamples = (void *) malloc (msr->numsamples * samplesize)) == NULL )
+      if ( (dupmsr->datasamples = (void *) malloc ((size_t)(msr->numsamples * samplesize))) == NULL )
 	{
 	  ms_log (2, "msr_duplicate(): Error allocating memory\n");
 	  free (dupmsr);
-	  return NULL;	  
+	  return NULL;
 	}
       
       /* Copy the data array */
-      memcpy (dupmsr->datasamples, msr->datasamples, (msr->numsamples * samplesize));
+      memcpy (dupmsr->datasamples, msr->datasamples, ((size_t)(msr->numsamples * samplesize)));
     }
   /* Otherwise make sure the sample array and count are zero */
   else
@@ -582,12 +597,38 @@ hptime_t
 msr_endtime (MSRecord *msr)
 {
   hptime_t span = 0;
+  LeapSecond *lslist = leapsecondlist;
   
   if ( ! msr )
     return HPTERROR;
-
+  
   if ( msr->samprate > 0.0 && msr->samplecnt > 0 )
     span = (hptime_t)(((double) (msr->samplecnt - 1) / msr->samprate * HPTMODULUS) + 0.5);
+  
+  /* Check if the record contains a leap second, if list is available */
+  if ( lslist )
+    {
+      while ( lslist )
+        {
+          if ( lslist->leapsecond > msr->starttime &&
+               lslist->leapsecond < (msr->starttime + span) )
+            {
+              span -= HPTMODULUS;
+              break;
+            }
+          
+          lslist = lslist->next;
+        }
+    }
+  else
+    {
+      /* If a positive leap second occurred during this record as denoted by
+       * bit 4 of the activity flags being set, reduce the end time to match
+       * the now shifted UTC time. */
+      if ( msr->fsdh )
+        if ( msr->fsdh->act_flags & 0x10 )
+          span -= HPTMODULUS;
+    }
   
   return (msr->starttime + span);
 } /* End of msr_endtime() */
