@@ -1,0 +1,6 @@
+2011.146: 0.1
+	- Update libmseed to 2.6.1.
+
+2011.032:
+	- Initial version.  Works only on machines with byte order matching
+	the byte order of the data (e.g. little-endian).
