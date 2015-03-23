@@ -2,6 +2,9 @@
 
 ##Convert (Win)SDR waveform data to Mini-SEED.
 
+The data read by this converter is the continuous recording format used by
+the [WinSDR](http://psn.quake.net/winsdr/) software.
+
 ### Building/Installing 
 
 In most environments a simple 'make' will build the program.
