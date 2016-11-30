@@ -1,3 +1,8 @@
+2016.335: 0.3
+	- Update libmseed to 2.18.
+	- Add support for 24-bit daily record SDR format.
+	- Reformat source code according to included clang-format profile.
+
 2015.081: 0.2
 	- Update libmseed to 2.15.
 
@@ -5,5 +10,4 @@
 	- Update libmseed to 2.6.1.
 
 2011.032:
-	- Initial version.  Works only on machines with byte order matching
-	the byte order of the data (e.g. little-endian).
+	- Initial version.  Probably only works on little-endian machines.
