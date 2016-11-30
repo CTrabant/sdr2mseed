@@ -9,8 +9,8 @@
  *
  * Modified by Chad Trabant:
  *  Strip to minimum needed and convert to C99 data types.
- * 
- * modified 2011.029
+ *
+ * modified 2016.335
  ***************************************************************************/
 
 #include <libmseed.h>
@@ -28,17 +28,18 @@
 #define MAX_SAMPLES_PER_BLOCK MAX_SAMPLES * BLOCK_LEN  // For all channels
 
 #define MAX_FILE_INFO	2000   	// Number of FileInfo blocks
-#define HDR_VERSION	0x01	// Version ID of the record file
+#define HDR_VERSION1	0x01	// Version 1 (8 & 16-bit) ID of the record file
+#define HDR_VERSION2	0x02	// Version 2 (24-bit) ID of the record file
 #define GOOD_BLK_ID	0xa55a	// Each data block has this at the beginning of block
 
 // The flags in the InfoBlock below
-#define F_ISLOCKED		0x01	// Indicates that the A/D board was locked to a reference source
-#define F_WASLOCKED		0x02	// Indicates that the A/D board was locked at some point but not
+#define F_ISLOCKED	0x01	// Indicates that the A/D board was locked to a reference source
+#define F_WASLOCKED	0x02	// Indicates that the A/D board was locked at some point but not
 
 /*
- * Each data block has an array of flags to tell the unpacker if the sample is 
- * stored as a 8 bit character (+-127) or a short (+- 32K). This calculates 
- * the the size of the array. WinSDR saves this array right after the InfoBlock 
+ * Each data block has an array of flags to tell the unpacker if the sample is
+ * stored as a 8 bit character (+-127) or a short (+- 32K). This calculates
+ * the the size of the array. WinSDR saves this array right after the InfoBlock
  * and before the compressed data. We add one at the end in case the division had a remainder.
  */
 #define flagBlkSize(samPerSec) ((samPerSec * BLOCK_LEN) / 8 + 1)

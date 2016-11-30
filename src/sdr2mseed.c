@@ -5,7 +5,7 @@
  *
  * Written by Chad Trabant, IRIS Data Management Center
  *
- * modified 2011.146
+ * modified 2016.335
  ***************************************************************************/
 
 #include <stdio.h>
@@ -20,7 +20,7 @@
 #include "sdrformat.h"
 #include "decimate.h"
 
-#define VERSION "0.2"
+#define VERSION "0.3"
 #define PACKAGE "sdr2mseed"
 
 struct listnode {
@@ -31,7 +31,8 @@ struct listnode {
 
 static int parseSDR (char *sdrfile, MSTraceGroup *mstg);
 static int sdr2group (FILE *ifp, MSTraceGroup *mstg, int format, char *sdrfile, int verbose);
-static int decompressSDR (HeaderBlock *sh, InfoBlock *iblock, int blocknum, int16_t *msdata);
+static int decompressSDR (HeaderBlock *sh, InfoBlock *iblock, int blocknum, int16_t *i16data);
+static int normalizeSDR24 (HeaderBlock *hblock, InfoBlock *iblock, int blocknum, int32_t *i32data);
 static int decimate (MSTrace *mst, int factor);
 static void packtraces (MSTraceGroup *mstg, flag flush);
 static void record_handler (char *record, int reclen, void *handlerdata);
@@ -233,9 +234,11 @@ sdr2group (FILE *ifp, MSTraceGroup *mstg, int format, char *sdrfile, int verbose
   char *datablock = NULL;
   int datablocklength = 0;
   
-  int16_t *msdata = NULL;
-  int mssamples;
+  int16_t *i16muxed = NULL;
+  int32_t *i32muxed = NULL;
   int32_t *cdata = NULL;
+  int mssamples;
+  int headerversion;
   
   char chanstr[4];
   int totalsamples = 0;
@@ -257,12 +260,14 @@ sdr2group (FILE *ifp, MSTraceGroup *mstg, int format, char *sdrfile, int verbose
   /* Read the header block */
   if ( fread (&hblock, sizeof(HeaderBlock), 1, ifp) < 1 )
     return -1;
-  
+
+  headerversion = hblock.fileVersionFlags & 0xFF;
+
   /* Sanity check header version and sample count */
-  if ( (hblock.fileVersionFlags & 0xFF) != HDR_VERSION)
+  if ( headerversion != HDR_VERSION1 && headerversion != HDR_VERSION2 )
     {
-      fprintf (stderr, "%s: Unrecognized file type (invalid header version), skipping\n",
-	       sdrfile);
+      fprintf (stderr, "%s: Unrecognized file type (invalid header version %d), skipping\n",
+	       sdrfile, headerversion);
       return -1;
     }
   if ( (hblock.numSamples != (hblock.sampleRate * hblock.numChannels)) )
@@ -281,7 +286,7 @@ sdr2group (FILE *ifp, MSTraceGroup *mstg, int format, char *sdrfile, int verbose
       if ( verbose < 2 )
 	{
 	  fprintf (stderr, "%s: version %d, samps/sec: %d, %s - %s\n",
-		   sdrfile, (hblock.fileVersionFlags & 0xFF), hblock.sampleRate,
+		   sdrfile, headerversion, hblock.sampleRate,
 		   stime, ltime);
 	}
       else
@@ -298,14 +303,26 @@ sdr2group (FILE *ifp, MSTraceGroup *mstg, int format, char *sdrfile, int verbose
 	}
     }
   
-  /* Allocate 1-minute multiplexed "blocked" data buffer */
-  if ( ! (msdata = (int16_t *) malloc (60 * hblock.numSamples * sizeof(int16_t))) )
+  /* Allocate 1-minute multiplexed "blocked" data buffer depending on data encoding */
+  if ( headerversion == HDR_VERSION1 )
     {
-      fprintf (stderr, "%s: Error allocating muxed data buffer of %d bytes\n",
-	       sdrfile, (int) (60 * hblock.numSamples * sizeof(int16_t)));
-      return -1;
+      if ( ! (i16muxed = (int16_t *) malloc (60 * hblock.numSamples * sizeof(int16_t))) )
+        {
+          fprintf (stderr, "%s: Error allocating muxed data buffer of %d bytes\n",
+                   sdrfile, (int) (60 * hblock.numSamples * sizeof(int16_t)));
+          return -1;
+        }
     }
-  
+  else
+    {
+      if ( ! (i32muxed = (int32_t *) malloc (60 * hblock.numSamples * sizeof(int32_t))) )
+        {
+          fprintf (stderr, "%s: Error allocating muxed data buffer of %d bytes\n",
+                   sdrfile, (int) (60 * hblock.numSamples * sizeof(int32_t)));
+          return -1;
+        }
+    }
+
   /* Allocate 1-minute demultiplexed "unblocked" channel buffer */
   if ( ! (cdata = (int32_t *) malloc (60 * hblock.sampleRate * sizeof(int32_t))) )
     {
@@ -367,7 +384,7 @@ sdr2group (FILE *ifp, MSTraceGroup *mstg, int format, char *sdrfile, int verbose
 		       sdrfile, finfo->blockSize);
 	      break;
 	    }
-	  
+
 	  datablocklength = finfo->blockSize;
 	}
       
@@ -398,9 +415,12 @@ sdr2group (FILE *ifp, MSTraceGroup *mstg, int format, char *sdrfile, int verbose
 		   stime, iblock->startTimeTick, iblock->blockSize);
 	}
       
-      /* Decompress data block */
-      mssamples = decompressSDR (&hblock, iblock, idx+1, msdata);
-      
+      /* Decompress or unpack data block */
+      if ( headerversion == HDR_VERSION1 )
+        mssamples = decompressSDR (&hblock, iblock, idx+1, i16muxed);
+      else
+        mssamples = normalizeSDR24 (&hblock, iblock, idx+1, i32muxed);
+
       totalsamples += mssamples;
       
       /* Determine time at day boundary */
@@ -421,7 +441,10 @@ sdr2group (FILE *ifp, MSTraceGroup *mstg, int format, char *sdrfile, int verbose
 	  /* Extract channel samples from multiplexed array */
 	  for (sidx = 0, midx = cidx; midx < mssamples; sidx++, midx += hblock.numChannels )
 	    {
-	      cdata[sidx] = msdata[midx];
+              if ( headerversion == HDR_VERSION1 )
+                cdata[sidx] = i16muxed[midx];
+              else
+                cdata[sidx] = i32muxed[midx];
 	    }
 	  
 	  /* Set channel codes */
@@ -484,8 +507,8 @@ sdr2group (FILE *ifp, MSTraceGroup *mstg, int format, char *sdrfile, int verbose
   if ( datablock )
     free (datablock);
   
-  if ( msdata )
-    free (msdata);
+  if ( i16muxed )
+    free (i16muxed);
   
   if ( cdata )
     free (cdata);
@@ -516,7 +539,7 @@ sdr2group (FILE *ifp, MSTraceGroup *mstg, int format, char *sdrfile, int verbose
  * Returns number of samples decompressed on success and -1 on error.
  ***************************************************************************/
 int decompressSDR (HeaderBlock *hblock, InfoBlock *iblock, int blocknum,
-		   int16_t *msdata)
+		   int16_t *i16data)
 {
   int bitCount = 0;
   int samplesDecoded = 0;
@@ -530,11 +553,11 @@ int decompressSDR (HeaderBlock *hblock, InfoBlock *iblock, int blocknum,
   int numShort = 0;
   int numChar = 0;
   
-  if ( ! hblock || ! iblock || ! msdata )
+  if ( ! hblock || ! iblock || ! i16data )
     return -1;
   
   /* Decompress one minute's worth of data. Compute the data block
-   * size in bytes, and stop when we get to the end of the valid  data. */
+   * size in bytes, and stop when we get to the end of the valid data. */
   
   byteCnt = iblock->blockSize - flagBlkSize(hblock->numSamples) - sizeof(InfoBlock);
   
@@ -542,7 +565,7 @@ int decompressSDR (HeaderBlock *hblock, InfoBlock *iblock, int blocknum,
     fprintf (stderr, "  Decompressing block size: %d, flag block size: %d, bytes: %d\n",
 	     iblock->blockSize, flagBlkSize(hblock->numSamples), byteCnt);
   
-  outPtr = msdata;
+  outPtr = i16data;
   flagBlk = (int8_t *)iblock + sizeof(InfoBlock);
   tmpFlag = *flagBlk;
   inPtr = (int8_t *)flagBlk + flagBlkSize(hblock->numSamples);
@@ -608,6 +631,79 @@ int decompressSDR (HeaderBlock *hblock, InfoBlock *iblock, int blocknum,
   
   return samplesDecoded;
 }  /* End of decompressSDR() */
+
+/***************************************************************************
+ * normalizeSDR:
+ *
+ * Convert 24-bit integer data to 32-bit integers.
+ *
+ * Routine referenced from drf2txt by Larry Cochrane.
+ *
+ * Returns number of samples decompressed on success and -1 on error.
+ ***************************************************************************/
+int normalizeSDR24 (HeaderBlock *hblock, InfoBlock *iblock, int blocknum,
+                    int32_t *i32data)
+{
+  int samplesDecoded = 0;
+  int byteCnt;
+  uint8_t *inPtr;
+  uint8_t *outPtr;
+
+  if ( ! hblock || ! iblock || ! i32data )
+    return -1;
+  
+  /* Decompress one minute's worth of data. Compute the data block
+   * size in bytes, and stop when we get to the end of the valid data. */
+  
+  byteCnt = iblock->blockSize - sizeof(InfoBlock);
+  
+  if ( verbose > 1 )
+    fprintf (stderr, "  Decompressing block size: %d, bytes: %d\n",
+	     iblock->blockSize, byteCnt);
+  
+  inPtr = (uint8_t *)iblock + sizeof(InfoBlock);
+  outPtr = (uint8_t *)i32data;
+
+  /* Unpack 24-bit values into an array of 32-bit integers */
+  while ( byteCnt > 0 )
+    {
+      /* Sign extension */
+      if ( inPtr[0] & 0x80 )
+        outPtr[3] = 0xFF;
+      else
+        outPtr[3] = 0x0;
+      outPtr[2] = inPtr[0];
+      outPtr[1] = inPtr[1];
+      outPtr[0] = inPtr[2];
+
+      inPtr += 3;   /* Advance 24 bits */
+      outPtr += 4;  /* Advance 32 bits */
+      byteCnt -= 3;
+      samplesDecoded++;
+    }
+  
+  if ( byteCnt < 0 )
+    {
+      fprintf (stderr, "WARNING -- Possible Data Corruption.\n");
+      fprintf (stderr, "  Flags did not match the number of data bytes when decompressing data in Block No %d\n",
+	       blocknum);
+    }
+  
+  if ( verbose > 1 )
+    {
+      fprintf (stderr, "  Decompressed %d samples (for %d channels)\n",
+	       samplesDecoded, hblock->numChannels);
+    }
+  
+  if ( samplesDecoded > (hblock->numChannels * hblock->sampleRate * BLOCK_LEN) )
+    {
+      fprintf (stderr, "WARNING -- Possible Data Corruption.\n");
+      fprintf (stderr, "  More than one minute's samples for %d channels * %d sps rate * %d seconds per block\n",
+	       hblock->numChannels, hblock->sampleRate, BLOCK_LEN);
+    }
+  
+  return samplesDecoded;
+}  /* End of normalizeSDR24() */
 
 
 /***************************************************************************
