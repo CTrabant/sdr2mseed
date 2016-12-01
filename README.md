@@ -5,18 +5,15 @@
 The data read by this converter is the continuous recording format used by
 the [WinSDR](http://psn.quake.net/winsdr/) software.
 
+For usage information see the [sdr2mseed manual](doc/sdr2mseed.md)
+in the 'doc' directory.
+
 ### Building/Installing 
 
-In most environments a simple 'make' will build the program.
+In most Unix like environments a simple 'make' will build the program.
 
-In the Win32 environment the Makefile.wat can be used with Open
-Watcom's wmake program.
-
-Using GCC, running 'make static' will compile a static version
-if possible.
-
-For further installation simply copy the resulting binary and man page
-(in the 'doc' directory) to appropriate system directories.
+For Windows the included Makefile.win can be used with the nmake program
+included with MS Visual Studio.
 
 ### Licensing
 
