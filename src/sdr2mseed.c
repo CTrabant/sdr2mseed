@@ -5,7 +5,7 @@
  *
  * Written by Chad Trabant, IRIS Data Management Center
  *
- * modified 2016.335
+ * modified 2016.341
  ***************************************************************************/
 
 #include <ctype.h>
@@ -20,7 +20,7 @@
 #include "decimate.h"
 #include "sdrformat.h"
 
-#define VERSION "0.3"
+#define VERSION "0.4"
 #define PACKAGE "sdr2mseed"
 
 struct listnode
@@ -52,7 +52,7 @@ static char srateblkt   = 0;
 static char *network    = "XX";
 static char *station    = "SDR";
 static char *location   = "  ";
-static char *channel    = 0;
+static char *channel[MAX_CHANNELS];
 static char *outputfile = 0;
 static FILE *ofp        = 0;
 
@@ -448,8 +448,8 @@ sdr2group (FILE *ifp, MSTraceGroup *mstg, int format, char *sdrfile, int verbose
       }
 
       /* Set channel codes */
-      if (channel)
-        ms_strncpclean (msr->channel, channel, 3);
+      if (channel[cidx] != NULL)
+        ms_strncpclean (msr->channel, channel[cidx], 3);
       else
       {
         snprintf (chanstr, sizeof (chanstr), "%03d", cidx + 1);
@@ -827,6 +827,7 @@ parameter_proc (int argcount, char **argvec)
 {
   int optind;
   int idx;
+  char *channelstr  = NULL;
   char *chanliststr = NULL;
   char *deciliststr = NULL;
 
@@ -869,7 +870,7 @@ parameter_proc (int argcount, char **argvec)
     }
     else if (strcmp (argvec[optind], "-c") == 0)
     {
-      channel = getoptval (argcount, argvec, optind++);
+      channelstr = getoptval (argcount, argvec, optind++);
     }
     else if (strcmp (argvec[optind], "-S") == 0)
     {
@@ -916,7 +917,30 @@ parameter_proc (int argcount, char **argvec)
   if (verbose)
     fprintf (stderr, "%s version: %s\n", PACKAGE, VERSION);
 
-  /* Parse channel list */
+  /* Init channel code list */
+  for (idx = 0; idx < MAX_CHANNELS; idx++)
+    channel[idx] = NULL;
+
+  /* Parse channel code list */
+  if (channelstr)
+  {
+    char *ptr = strdup (channelstr);
+
+    /* Parse comma separated list */
+    idx          = 0;
+    channel[idx] = ptr;
+    while ((ptr = strchr (ptr, ',')) != NULL)
+      {
+        idx++;
+        *ptr++ = '\0';
+        channel[idx] = ptr;
+
+        if (idx > MAX_CHANNELS)
+          break;
+      }
+  }
+
+  /* Parse channel selection list */
   if (chanliststr)
   {
     char *sarr[MAX_CHANNELS];
@@ -1247,7 +1271,7 @@ usage (void)
            " -n netcode      Specify the SEED network code, default is XX\n"
            " -s stacode      Specify the SEED station code, default is SDR\n"
            " -l locid        Specify the SEED location ID, default is blank (space-space)\n"
-           " -c chancodes    Specify the SEED channel codes, default is channel number\n"
+           " -c chanlist     Specify list of SEED channel codes, default is channel number\n"
            " -S              Include SEED blockette 100 for very irrational sample rates\n"
            " -r bytes        Specify record length in bytes for packing, default: 4096\n"
            " -e encoding     Specify SEED encoding format for packing, default: 11 (Steim2)\n"

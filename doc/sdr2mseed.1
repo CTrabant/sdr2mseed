@@ -1,4 +1,4 @@
-.TH SDR2MSEED 1 2011/01/31
+.TH SDR2MSEED 1 2016/12/06
 .SH NAME
 SDR to Mini-SEED converter
 
@@ -64,10 +64,11 @@ blank/empty.  Generally location IDs are used to logcially separate
 multiple instruments at the same site.
 
 .IP "-c \fIchancodes\fP"
-Specify the SEED channel codes to use.  The default channel codes are
-a three digit value representing the SDR channel number, this does not
-follow the SEED convention which uses codes for bandwidth, instrument
-type and orientation.
+Specify a list of SEED channel codes to map the channel numbers to.
+For example, "-c BHZ,BHN,BHE".  The default channel codes are a three
+digit value representing the SDR channel number, this does not follow
+the SEED convention which uses codes for bandwidth, instrument type
+and orientation.
 
 .IP "-S         "
 Include SEED blockette 100 in each output record with the sample rate

@@ -58,7 +58,7 @@ sdr2mseed [options] file1 [file2 file3 ...]
 
 <b>-c </b><i>chancodes</i>
 
-<p style="padding-left: 30px;">Specify the SEED channel codes to use.  The default channel codes are a three digit value representing the SDR channel number, this does not follow the SEED convention which uses codes for bandwidth, instrument type and orientation.</p>
+<p style="padding-left: 30px;">Specify a list of SEED channel codes to map the channel numbers to. For example, "-c BHZ,BHN,BHE".  The default channel codes are a three digit value representing the SDR channel number, this does not follow the SEED convention which uses codes for bandwidth, instrument type and orientation.</p>
 
 <b>-S</b>
 
@@ -103,4 +103,4 @@ CT
 </pre>
 
 
-(man page 2011/01/31)
+(man page 2016/12/06)
